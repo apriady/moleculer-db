@@ -9,7 +9,7 @@
 const _ = require("lodash");
 const Promise = require("bluebird");
 const { MoleculerClientError, ValidationError } = require("moleculer").Errors;
-const { EntityNotFoundError } = require("./errors");
+const { EntityNotFoundError, EntityLogicallyNotFoundError } = require("./errors");
 const MemoryAdapter = require("./memory-adapter");
 const pkg = require("../package.json");
 
@@ -58,7 +58,9 @@ module.exports = {
 		maxLimit: -1,
 
 		/** @type {Object|Function} Validator schema or a function to validate the incoming entity in `create` & 'insert' actions. */
-		entityValidator: null
+		entityValidator: null,
+
+		softDelete: false
 	},
 
 	/**
@@ -184,6 +186,7 @@ module.exports = {
 			},
 			handler(ctx) {
 				let params = this.sanitizeParams(ctx, ctx.params);
+				if(this.settings.softDelete && !params.ignoreSoftDelete) params.query = Object.assign(params.query || {}, {isDeleted : "-1"});
 				return this._list(ctx, params);
 			}
 		},
@@ -264,7 +267,10 @@ module.exports = {
 			},
 			handler(ctx) {
 				let params = this.sanitizeParams(ctx, ctx.params);
-				return this._get(ctx, params);
+				return this._get(ctx, params).then(data =>{
+					if (this.settings.softDelete && !params.ignoreSoftDelete && data.isDeleted !== "-1") return Promise.reject(new EntityLogicallyNotFoundError(params.id));
+					return data;
+				});
 
 			}
 		},
@@ -285,7 +291,10 @@ module.exports = {
 			rest: "PUT /:id",
 			handler(ctx) {
 				let params = ctx.params;
-				return this._update(ctx, params);
+				return this._get(ctx, params).then(data =>{
+					if (this.settings.softDelete && data.isDeleted !== "-1") return Promise.reject(new EntityLogicallyNotFoundError(params.id));
+					return this._update(ctx, params);
+				});
 			}
 		},
 
@@ -306,7 +315,14 @@ module.exports = {
 			},
 			handler(ctx) {
 				let params = this.sanitizeParams(ctx, ctx.params);
-				return this._remove(ctx, params);
+				if (!this.settings.softDelete) {
+					return this._remove(ctx, params);
+				}
+				return this._get(ctx,params).then(({ isDeleted }) => {
+					if (isDeleted !== "-1") return Promise.reject(new EntityLogicallyNotFoundError(params.id));
+					params.isDeleted = new Date().getTime();
+					return this._update(ctx, params);
+				});
 			}
 		}
 	},
@@ -624,6 +640,7 @@ module.exports = {
 						mapping: true,
 						populate: rule.populate
 					}, rule.params || {});
+					params.ignoreSoftDelete = true;
 
 					promises.push(ctx.call(rule.action, params).then(resultTransform));
 				}

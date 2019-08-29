@@ -32,9 +32,26 @@ class EntityNotFoundError extends MoleculerClientError {
 	}
 }
 
+class EntityLogicallyNotFoundError extends MoleculerClientError {
+
+	/**
+	 * Creates an instance of EntityLogicallyNotFoundError.
+	 *
+	 * @param {any} ID of entity
+	 *
+	 * @memberOf EntityLogicallyNotFoundError
+	 */
+	constructor(id) {
+		super("Entity logically not found", 404, null, {
+			id
+		});
+	}
+}
+
 
 module.exports = {
-	EntityNotFoundError
+	EntityNotFoundError,
+	EntityLogicallyNotFoundError
 
 	//ERR_ENTITY_NOT_FOUND,
 };
